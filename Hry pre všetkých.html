@@ -1,0 +1,539 @@
+<!DOCTYPE html> 
+<html lang="sk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Herný portál Marek — s ChromeDino</title>
+  <style>
+    :root{--blue:#1976d2;--nav:#1565c0}
+    *{box-sizing:border-box}
+    body,html{margin:0;height:100%;font-family:Arial,sans-serif;background:linear-gradient(to top,#a0eaff,#ffffff)}
+    header{background:var(--blue);color:#fff;padding:12px 18px;text-align:center}
+    #app{max-width:1100px;margin:18px auto;background:rgba(255,255,255,0.95);border-radius:10px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,0.12)}
+    nav{display:flex;gap:8px;align-items:center;padding:10px 16px;background:var(--nav)}
+    nav button{background:transparent;border:0;color:#fff;padding:8px 12px;border-radius:6px;cursor:pointer}
+    nav button:hover{background:rgba(255,255,255,0.08)}
+    #content{padding:20px}
+    section{display:none}
+    section.active{display:block}
+    .dino-embed {
+      display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;
+    }
+    #dinoIframe {
+      width:720px;height:260px;border:3px solid #333;border-radius:8px;background:#fff;
+    }
+    #localDinoWrap { width:720px; }
+    canvas#localDino { width:100%; height:260px; background:linear-gradient(#dff7ff,#eafcff); border:3px solid #333;border-radius:8px; display:block }
+    .side-controls { min-width:260px; }
+    .btn { display:inline-block;padding:10px 14px;border-radius:8px;border:none;background:var(--blue);color:white;cursor:pointer;margin-bottom:10px }
+    .btn.secondary{background:#888}
+    #notice { margin-top:8px;color:#b00 }
+    .small-table{width:100%;border-collapse:collapse}
+    .small-table th,.small-table td{border:1px solid #ddd;padding:8px;text-align:left}
+    #commentsList{max-height:170px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff;border-radius:6px}
+    input[type=text], input[type=password] {padding:8px;width:100%;margin:6px 0;border:1px solid #ccc;border-radius:6px}
+  </style>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  
+  <script>
+    // Firebase config - tu daj svoje hodnoty z Firebase projektu
+    const firebaseConfig = {
+      apiKey: "TVOJ_API_KEY",
+      authDomain: "TVOJ_AUTH_DOMAIN",
+      projectId: "TVOJ_PROJECT_ID",
+      storageBucket: "TVOJ_STORAGE_BUCKET",
+      messagingSenderId: "TVOJ_MESSAGING_SENDER_ID",
+      appId: "TVOJ_APP_ID"
+    };
+
+    // Inicializácia Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+  </script>
+</head>
+<body>
+  <header><h1>Herný portál Marek — Dino (ChromeDino) integrácia</h1></header>
+
+  <div id="app">
+    <nav>
+      <div style="flex:1;color:#fff;font-weight:700" id="welcomeUser">Prihlásenie</div>
+      <button data-section="dinoSection">Dino hra</button>
+      <button data-section="clickSection">Klikacia hra</button>
+      <button data-section="hallOfFameSection">Sieň slávy</button>
+      <button data-section="commentsSection">Komentáre</button>
+      <button data-section="profileSection">Profil</button>
+      <button id="logoutBtn" style="background:#b22222;display:none;">Odhlásiť sa</button>
+    </nav>
+
+    <div id="content">
+      <!-- LOGIN (full screen like before) -->
+      <div id="loginScreen" style="display:block;padding:24px;text-align:center;background:#333;color:#fff;">
+        <h2>Hry pre všetkých</h2>
+        <div style="max-width:360px;margin:0 auto">
+          <input id="loginEmail" type="text" placeholder="E-mail" autocomplete="off" />
+          <input id="loginPassword" type="password" placeholder="Heslo" autocomplete="off" />
+          <div style="margin-top:10px">
+            <button id="loginBtn" class="btn">Prihlásiť sa</button>
+            <button id="showRegisterBtn" class="btn secondary">Vytvoriť konto</button>
+          </div>
+          <div id="loginMessage" style="height:22px;margin-top:8px;color:#f88"></div>
+        </div>
+        <div id="registerSection" style="display:none;margin-top:18px;color:#fff;">
+          <input id="regEmail" type="text" placeholder="E-mail" autocomplete="off" />
+          <input id="regPassword" type="password" placeholder="Heslo" autocomplete="off" />
+          <input id="regPasswordConfirm" type="password" placeholder="Potvrď heslo" autocomplete="off" />
+          <input id="regUsername" type="text" placeholder="Meno" autocomplete="off" />
+          <div style="margin-top:8px">
+            <button id="registerBtn" class="btn">Registrovať sa</button>
+            <button id="cancelRegisterBtn" class="btn secondary">Zrušiť</button>
+          </div>
+          <div id="registerMessage" style="height:20px;margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- MAIN SECTIONS -->
+      <section id="dinoSection" class="active">
+        <h2>Dino hra</h2>
+        <div class="dino-embed">
+          <iframe id="dinoIframe" src="https://chromedino.com/" title="Chrome Dino"></iframe>
+          <div class="side-controls">
+            <div style="margin-bottom:12px">
+              <button id="useLocalDino" class="btn secondary">Použiť lokálnu hru (fallback)</button>
+              <button id="reloadIframe" class="btn">Obnoviť iframe</button>
+            </div>
+            <div id="iframeStatus">Stav iframe: <strong id="iframeState">kontrola...</strong></div>
+            <div id="notice" style="display:none"></div>
+            <hr style="margin:12px 0">
+            <div>
+              <strong>Návod:</strong>
+              <ul style="padding-left:16px">
+                <li>Ak iframe funguje, hraj priamo z ChromeDino (v embed).</li>
+                <li>Ak iframe je zablokovaný, klikni <b>Použiť lokálnu hru</b> alebo hra sa spustí automaticky.</li>
+                <li>Skok: medzerník</li>
+              </ul>
+            </div>
+          </div>
+          <div id="localDinoWrap" style="display:none;flex-basis:100%">
+            <canvas id="localDino" width="720" height="260"></canvas>
+            <p style="margin-top:6px">Lokálny Dino — ak iframe nie je dostupný.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="clickSection">
+        <h2>Klikacia hra</h2>
+        <div id="clickScore">Skóre: <span id="clickScoreVal">0</span></div>
+        <button id="clickButton" class="btn">Klikni ma!</button>
+        <button id="resetClickScore" class="btn secondary">Reset skóre</button>
+      </section>
+
+      <section id="hallOfFameSection">
+        <h2>Sieň slávy</h2>
+        <table class="small-table" id="hallOfFameTable">
+          <thead>
+            <tr><th>Meno</th><th>Dino skóre</th><th>Klikacia hra skóre</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="commentsSection">
+        <h2>Komentáre</h2>
+        <form id="commentForm">
+          <input id="commentInput" type="text" placeholder="Napíš komentár..." autocomplete="off" required />
+          <button type="submit" class="btn">Odoslať</button>
+        </form>
+        <div id="commentsList" aria-live="polite" aria-relevant="additions"></div>
+      </section>
+
+      <section id="profileSection">
+        <h2>Profil používateľa</h2>
+        <p>Meno: <span id="profileUsername"></span></p>
+        <p>E-mail: <span id="profileEmail"></span></p>
+        <p>Dino skóre: <span id="profileDinoScore"></span></p>
+        <p>Klikacia hra skóre: <span id="profileClickScore"></span></p>
+        <button id="resetAllScoresBtn" class="btn secondary">Resetovať všetky skóre</button>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    // Prvky
+    const loginScreen = document.getElementById('loginScreen');
+    const loginEmail = document.getElementById('loginEmail');
+    const loginPassword = document.getElementById('loginPassword');
+    const loginBtn = document.getElementById('loginBtn');
+    const loginMessage = document.getElementById('loginMessage');
+    const showRegisterBtn = document.getElementById('showRegisterBtn');
+    const registerSection = document.getElementById('registerSection');
+    const regEmail = document.getElementById('regEmail');
+    const regPassword = document.getElementById('regPassword');
+    const regPasswordConfirm = document.getElementById('regPasswordConfirm');
+    const regUsername = document.getElementById('regUsername');
+    const registerBtn = document.getElementById('registerBtn');
+    const cancelRegisterBtn = document.getElementById('cancelRegisterBtn');
+    const registerMessage = document.getElementById('registerMessage');
+    const welcomeUser = document.getElementById('welcomeUser');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    const navButtons = document.querySelectorAll('nav button[data-section]');
+    const sections = document.querySelectorAll('section');
+    const content = document.getElementById('content');
+
+    const commentForm = document.getElementById('commentForm');
+    const commentInput = document.getElementById('commentInput');
+    const commentsList = document.getElementById('commentsList');
+
+    const profileUsername = document.getElementById('profileUsername');
+    const profileEmail = document.getElementById('profileEmail');
+    const profileDinoScore = document.getElementById('profileDinoScore');
+    const profileClickScore = document.getElementById('profileClickScore');
+    const resetAllScoresBtn = document.getElementById('resetAllScoresBtn');
+
+    const clickButton = document.getElementById('clickButton');
+    const clickScoreVal = document.getElementById('clickScoreVal');
+    const resetClickScore = document.getElementById('resetClickScore');
+
+    // Dino iframe controls
+    const dinoIframe = document.getElementById('dinoIframe');
+    const iframeState = document.getElementById('iframeState');
+    const useLocalDino = document.getElementById('useLocalDino');
+    const reloadIframe = document.getElementById('reloadIframe');
+    const notice = document.getElementById('notice');
+    const localDinoWrap = document.getElementById('localDinoWrap');
+
+    // Premenné
+    let currentUser = null;  // Bude obsahovať Firebase user objekt
+    let userData = null; // Načítané údaje o používateľovi z Firestore
+    let clickScore = 0;
+
+    // Prepínač sekcie
+    function switchSection(id) {
+      sections.forEach(s => s.classList.remove('active'));
+      const section = document.getElementById(id);
+      if(section) section.classList.add('active');
+    }
+
+    // --- AUTH LOGIKA ---
+    showRegisterBtn.addEventListener('click', () => {
+      registerSection.style.display = 'block';
+      loginMessage.textContent = '';
+      loginScreen.style.height = 'auto';
+    });
+    cancelRegisterBtn.addEventListener('click', () => {
+      registerSection.style.display = 'none';
+      registerMessage.textContent = '';
+    });
+
+    // Registrácia
+    registerBtn.addEventListener('click', async () => {
+      const u = regUsername.value.trim();
+      const p = regPassword.value;
+      const pc = regPasswordConfirm.value;
+      const e = regEmail.value.trim();
+
+      if (!u || !p || !pc || !e) {
+        registerMessage.style.color = 'red';
+        registerMessage.textContent = 'Vyplň všetky polia';
+        return;
+      }
+      if (p !== pc) {
+        registerMessage.style.color = 'red';
+        registerMessage.textContent = 'Heslá sa nezhodujú';
+        return;
+      }
+      try {
+        const userCredential = await auth.createUserWithEmailAndPassword(e, p);
+        const user = userCredential.user;
+
+        await db.collection('users').doc(user.uid).set({
+          username: u,
+          email: e,
+          dinoScore: 0,
+          clickScore: 0,
+          avatarBase64: ''
+        });
+
+        registerMessage.style.color = '#8f8';
+        registerMessage.textContent = 'Registrácia úspešná, teraz sa prihlás.';
+        setTimeout(() => {
+          registerSection.style.display = 'none';
+          registerMessage.textContent = '';
+        }, 1200);
+      } catch (err) {
+        registerMessage.style.color = 'red';
+        registerMessage.textContent = err.message;
+      }
+    });
+
+    // Prihlásenie
+    loginBtn.addEventListener('click', async () => {
+      const e = loginEmail.value.trim();
+      const p = loginPassword.value;
+      if (!e || !p) {
+        loginMessage.textContent = 'Vyplň e-mail a heslo';
+        return;
+      }
+      try {
+        const userCredential = await auth.signInWithEmailAndPassword(e, p);
+        currentUser = userCredential.user;
+
+        // Načítaj user data
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
+        if (!userDoc.exists) {
+          loginMessage.textContent = 'Používateľ neexistuje v databáze';
+          return;
+        }
+        userData = userDoc.data();
+
+        welcomeUser.textContent = `Vitaj, ${userData.username}`;
+        loginScreen.style.display = 'none';
+        logoutBtn.style.display = 'inline-block';
+
+        switchSection('dinoSection');
+        loadScores();
+        renderComments();
+        updateHallOfFame();
+        checkIframeAvailability();
+      } catch (err) {
+        loginMessage.textContent = err.message;
+      }
+    });
+
+    // Odhlásenie
+    logoutBtn.addEventListener('click', async () => {
+      await auth.signOut();
+      currentUser = null;
+      userData = null;
+      welcomeUser.textContent = 'Prihlásenie';
+      logoutBtn.style.display = 'none';
+      loginEmail.value = '';
+      loginPassword.value = '';
+      loginScreen.style.display = 'block';
+      switchSection('dinoSection');
+      commentsList.innerHTML = '';
+      profileUsername.textContent = '';
+      profileEmail.textContent = '';
+      profileDinoScore.textContent = '';
+      profileClickScore.textContent = '';
+      clickScoreVal.textContent = '0';
+    });
+
+    // Ak sa užívateľ už prihlasil (reload stránky)
+    auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        currentUser = user;
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        userData = userDoc.exists ? userDoc.data() : null;
+        if (userData) {
+          welcomeUser.textContent = `Vitaj, ${userData.username}`;
+          loginScreen.style.display = 'none';
+          logoutBtn.style.display = 'inline-block';
+          switchSection('dinoSection');
+          loadScores();
+          renderComments();
+          updateHallOfFame();
+          checkIframeAvailability();
+        } else {
+          await auth.signOut();
+          currentUser = null;
+          loginScreen.style.display = 'block';
+          logoutBtn.style.display = 'none';
+        }
+      }
+    });
+
+    // --- SKÓRE HIER ---
+    async function loadScores() {
+      if (!currentUser || !userData) return;
+      profileUsername.textContent = userData.username;
+      profileEmail.textContent = userData.email;
+      profileDinoScore.textContent = userData.dinoScore || 0;
+      profileClickScore.textContent = userData.clickScore || 0;
+
+      clickScore = userData.clickScore || 0;
+      clickScoreVal.textContent = clickScore;
+    }
+
+    async function saveScores() {
+      if (!currentUser) return;
+      await db.collection('users').doc(currentUser.uid).update({
+        dinoScore: userData.dinoScore,
+        clickScore: clickScore,
+      });
+      await loadScores();
+      updateHallOfFame();
+    }
+
+    clickButton.addEventListener('click', () => {
+      clickScore++;
+      clickScoreVal.textContent = clickScore;
+      userData.clickScore = clickScore;
+      saveScores();
+    });
+
+    resetClickScore.addEventListener('click', () => {
+      clickScore = 0;
+      clickScoreVal.textContent = clickScore;
+      userData.clickScore = 0;
+      saveScores();
+    });
+
+    resetAllScoresBtn.addEventListener('click', () => {
+      if (!userData) return;
+      userData.dinoScore = 0;
+      userData.clickScore = 0;
+      saveScores();
+    });
+
+    // --- SIEŇ SLÁVY ---
+    async function updateHallOfFame() {
+      const tbody = document.querySelector('#hallOfFameTable tbody');
+      tbody.innerHTML = '';
+      const usersSnapshot = await db.collection('users').get();
+      usersSnapshot.forEach(doc => {
+        const u = doc.data();
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${u.username}</td>
+          <td>${u.dinoScore || 0}</td>
+          <td>${u.clickScore || 0}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // --- KOMENTÁRE ---
+    commentForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!currentUser || !userData) return alert('Musíš byť prihlásený');
+
+      const text = commentInput.value.trim();
+      if (!text) return;
+
+      try {
+        await db.collection('comments').add({
+          user: userData.username,
+          text,
+          time: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        commentInput.value = '';
+        renderComments();
+      } catch (err) {
+        alert('Chyba pri ukladaní komentára: ' + err.message);
+      }
+    });
+
+    async function renderComments() {
+      commentsList.innerHTML = 'Načítavam...';
+      const snapshot = await db.collection('comments').orderBy('time', 'desc').limit(50).get();
+      commentsList.innerHTML = '';
+      snapshot.forEach(doc => {
+        const c = doc.data();
+        const timeStr = c.time ? c.time.toDate().toLocaleString() : '';
+        const p = document.createElement('div');
+        p.textContent = `[${timeStr}] ${c.user}: ${c.text}`;
+        commentsList.appendChild(p);
+      });
+    }
+
+    // --- Dino iframe fallback ---
+    useLocalDino.addEventListener('click', () => {
+      dinoIframe.style.display = 'none';
+      localDinoWrap.style.display = 'block';
+      iframeState.textContent = 'Lokálna hra aktívna';
+      notice.style.display = 'none';
+      initLocalDino();
+    });
+
+    reloadIframe.addEventListener('click', () => {
+      dinoIframe.src = dinoIframe.src;
+      dinoIframe.style.display = 'block';
+      localDinoWrap.style.display = 'none';
+      iframeState.textContent = 'Obnovujem iframe...';
+      notice.style.display = 'none';
+    });
+
+    // Kontrola dostupnosti iframe
+    function checkIframeAvailability() {
+      iframeState.textContent = 'Testujem iframe...';
+      notice.style.display = 'block';
+      setTimeout(() => {
+        // Tu by sme mohli spraviť nejaký test iframe
+        iframeState.textContent = 'Iframe aktívny';
+        notice.style.display = 'none';
+      }, 1500);
+    }
+
+    // --- Lokálna Dino hra ---
+    function initLocalDino() {
+      // Jednoduchá verzia lokálnej Dino hry (iba pre ukážku)
+      const canvas = document.getElementById('localDinoCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      let dinoX = 50, dinoY = 150;
+      let isJumping = false;
+      let velocityY = 0;
+      const gravity = 0.6;
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#555';
+        ctx.fillRect(dinoX, dinoY, 40, 40);
+      }
+
+      function update() {
+        if (isJumping) {
+          dinoY += velocityY;
+          velocityY += gravity;
+          if (dinoY >= 150) {
+            dinoY = 150;
+            isJumping = false;
+            velocityY = 0;
+          }
+        }
+        draw();
+        requestAnimationFrame(update);
+      }
+
+      document.addEventListener('keydown', e => {
+        if (e.code === 'Space' && !isJumping) {
+          isJumping = true;
+          velocityY = -12;
+        }
+      });
+
+      update();
+    }
+  </script>
+
+  <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-firestore.js"></script>
+
+  <script>
+    // Firebase konfigurácia (nahraď vlastnými údajmi)
+    const firebaseConfig = {
+      apiKey: "AIzaSyDl6umGHGLA3oOPOu90PV77OwB9LeLPh70",
+  authDomain: "hry-pre-vsetkych.firebaseapp.com",
+  databaseURL: "https://hry-pre-vsetkych-default-rtdb.firebaseio.com",
+  projectId: "hry-pre-vsetkych",
+  storageBucket: "hry-pre-vsetkych.firebasestorage.app",
+  messagingSenderId: "458729882579",
+  appId: "1:458729882579:web:d27f15f522d82c2e1de526",
+  measurementId: "G-LQEZ5M7XPZ"
+    };
+
+    // Inicializácia Firebase
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+  </script>
+
+</body>
+</html>
